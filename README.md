@@ -22,28 +22,15 @@ docker build -t mtls_generator:1.0.0 .
 
 #### Linux/macOS (Bash):
 ```sh
-docker run -d --rm -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config mtls_generator:1.0.0
+docker run --name mtls_generator -d --rm -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config mtls_generator:1.0.0
 ```
 
 #### Windows (PowerShell):
 ```powershell
-docker run -d --rm -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config mtls_generator:1.0.0
+docker run --name mtls_generator -d --rm -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config mtls_generator:1.0.0
 ```
 
-### 3. Ejecutar con nombre personalizado
-
-#### Linux/macOS (Bash):
-```sh
-docker run -d --rm --name mtls_generator -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config mtls_generator:1.0.0
-```
-
-#### Windows (PowerShell):
-```powershell
-docker run -d --rm --name mtls_generator -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config mtls_generator:1.0.0
-```
-
-
-### 4. Personalizando variables de entorno
+### 3. Personalizando variables de entorno
 
 Puedes pasar variables al contenedor usando `-e`:
 
@@ -57,7 +44,7 @@ docker run -d --rm -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config -e CE
 docker run -d --rm -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config -e CERT_CN="Mi CA personalizada" -e CERT_VALIDITY_DAYS=730 mtls_generator:1.0.0
 ```
 
-### 5. Usando un archivo `.env`
+### 4. Usando un archivo `.env`
 
 Si tienes un archivo `.env` con tus variables:
 
@@ -69,6 +56,78 @@ docker run -d --rm -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config --env
 #### Windows (PowerShell):
 ```powershell
 docker run -d --rm -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config --env-file .env mtls_generator:1.0.0
+```
+
+## Publicar imagen en GitHub Container Registry
+
+Para hacer la imagen disponible públicamente en GitHub Container Registry (ghcr.io), sigue estos pasos:
+
+### 1. Configurar autenticación con GitHub
+
+Primero, crea un Personal Access Token (PAT) en GitHub:
+
+1. Ve a GitHub → Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Genera un nuevo token con los permisos:
+   - `write:packages` (para subir imágenes)
+   - `read:packages` (para descargar imágenes)
+   - `delete:packages` (opcional, para eliminar imágenes)
+
+### 2. Autenticar Docker con GitHub
+
+```sh
+# Usando tu token de GitHub
+echo $GITHUB_TOKEN | docker login -u $GITHUB_USERNAME --password-stdin
+```
+
+O en Windows PowerShell:
+```powershell
+# Establecer variables
+$env:GITHUB_TOKEN = "tu_token_aqui"
+$env:GITHUB_USERNAME = "tu_usuario_github"
+
+# Autenticar
+$env:GITHUB_TOKEN | docker login -u $env:GITHUB_USERNAME --password-stdin
+```
+
+### 3. Etiquetar la imagen para GitHub Container Registry
+
+```sh
+# Formato: ghcr.io/OWNER/REPOSITORY:TAG
+docker tag mtls_generator:1.0.0 rlyehdoom/mtls_generator:1.0.0
+docker tag mtls_generator:1.0.0 rlyehdoom/mtls_generator:latest
+```
+
+### 4. Subir la imagen
+
+```sh
+# Subir versión específica
+docker push rlyehdoom/mtls_generator:1.0.0
+
+# Subir latest
+docker push rlyehdoom/mtls_generator:latest
+```
+
+### 5. Hacer la imagen pública (opcional)
+
+1. Ve a tu repositorio en GitHub
+2. Click en "Packages" en la barra lateral
+3. Selecciona tu imagen
+4. Click en "Package settings"
+5. Scroll hasta "Danger Zone"
+6. Click "Change visibility" → "Public"
+
+### 6. Usar la imagen desde GitHub Container Registry
+
+Una vez publicada, cualquiera puede usar la imagen:
+
+#### Linux/macOS:
+```sh
+docker run --name mtls_generator -d --rm -v $(pwd)/certs:/app/certs -v $(pwd)/config:/app/config rlyehdoom/mtls_generator:latest
+```
+
+#### Windows PowerShell:
+```powershell
+docker run --name mtls_generator -d --rm -v ${PWD}/certs:/app/certs -v ${PWD}/config:/app/config rlyehdoom/mtls_generator:latest
 ```
 
 ## Variables de configuración
