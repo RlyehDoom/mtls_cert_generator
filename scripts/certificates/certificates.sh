@@ -92,14 +92,29 @@ generate_openssl_config() {
     # Copy template and substitute variables
     log_info "Using template: $template_file"
     
-    # Try envsubst with explicit variable list
-    export CERT_CN CERT_ALT_NAMES CERT_VALIDITY_DAYS CERT_SIZE CERT_KEY_PASSWORD CERT_PFX_PASSWORD CERT_FRIENDLY_NAME
-    envsubst '$CERT_CN' < "$template_file" > "$config_file"
+    # Ensure all template variables have default values as fallback
+    # (Variables should already be loaded by entrypoint from default.vars)
+    export CERT_CN="${CERT_CN:-Development Authority CA}"
+    export CERT_EMAIL="${CERT_EMAIL:-dev.joselyr@gmail.com}"
+    export CERT_ALT_NAMES="${CERT_ALT_NAMES:-DNS:localhost,IP:127.0.0.1}"
+    export CERT_VALIDITY_DAYS="${CERT_VALIDITY_DAYS:-365}"
+    export CERT_SIZE="${CERT_SIZE:-2048}"
+    export CERT_KEY_PASSWORD="${CERT_KEY_PASSWORD:-password-01}"
+    export CERT_PFX_PASSWORD="${CERT_PFX_PASSWORD:-password-02}"
+    export CERT_FRIENDLY_NAME="${CERT_FRIENDLY_NAME:-Development Certificate}"
+    
+    log_info "Debug: Using CERT_CN='$CERT_CN' and CERT_EMAIL='$CERT_EMAIL'"
+    
+    # Use envsubst to substitute all variables
+    envsubst < "$template_file" > "$config_file"
     
     # Check if substitution worked
     if [[ $(wc -c < "$config_file") -lt 10 ]]; then
         log_error "Config file is too small, envsubst may have failed"
-        sed "s/\${CERT_CN}/$CERT_CN/g" "$template_file" > "$config_file"
+        # Manual fallback substitution
+        sed -e "s/\${CERT_CN}/$CERT_CN/g" \
+            -e "s/\${CERT_EMAIL}/$CERT_EMAIL/g" \
+            "$template_file" > "$config_file"
     fi
     
     # For server and client certificates, add dynamic alt_names
@@ -147,9 +162,11 @@ generate_ca() {
         openssl genrsa -aes256 -passout "pass:$key_password" -out "$ca_key" "${CERT_SIZE:-2048}"
         chmod 600 "$ca_key"
     fi
-    if [[ ! -f "$ca_config" ]]; then
-        generate_openssl_config "$ca_config" "ca"
-    fi
+    
+    # Always regenerate CA config to reflect current variables
+    log_info "Generating CA OpenSSL configuration (overwriting existing if present)"
+    generate_openssl_config "$ca_config" "ca"
+    
     if [[ ! -f "$ca_cert" ]]; then
         log_info "Generating CA certificate..."
         openssl req -x509 -new -nodes -key "$ca_key" -passin "pass:$key_password" -sha256 -days "${CERT_VALIDITY_DAYS:-3650}" -out "$ca_cert" -config "$ca_config"
@@ -177,15 +194,14 @@ generate_certificate() {
     # Get output paths (supports custom directories)
     get_cert_paths "$cert_name"
 
-    # Generate configuration if it doesn't exist or is empty
-    if [[ ! -f "$CERT_CONFIG_FILE" ]] || [[ ! -s "$CERT_CONFIG_FILE" ]]; then
-        generate_openssl_config "$CERT_CONFIG_FILE" "$cert_type"
-        
-        # Check if generation was successful
-        if [[ ! -f "$CERT_CONFIG_FILE" ]] || [[ $(wc -c < "$CERT_CONFIG_FILE") -lt 10 ]]; then
-            log_error "Config file generation failed or produced empty file"
-            return 1
-        fi
+    # Generate configuration (always regenerate to reflect current variables)
+    log_info "Generating OpenSSL configuration (overwriting existing if present)"
+    generate_openssl_config "$CERT_CONFIG_FILE" "$cert_type"
+    
+    # Check if generation was successful
+    if [[ ! -f "$CERT_CONFIG_FILE" ]] || [[ $(wc -c < "$CERT_CONFIG_FILE") -lt 10 ]]; then
+        log_error "Config file generation failed or produced empty file"
+        return 1
     fi
 
     # Generate CA if not exists
@@ -319,10 +335,9 @@ generate_client_cert_with_ca() {
     local client_pfx_file="${CERT_PFX_FILE%.pfx}_client.pfx"
     local client_config_file="${CERT_CONFIG_FILE%.conf}_client.conf"
 
-    # Generar config para client si no existe
-    if [[ ! -f "$client_config_file" ]]; then
-        generate_openssl_config "$client_config_file" "client"
-    fi
+    # Always regenerate client config to reflect current variables
+    log_info "Generating client OpenSSL configuration (overwriting existing if present)"
+    generate_openssl_config "$client_config_file" "client"
 
     # Generar la CA si no existe
     generate_ca
@@ -487,11 +502,11 @@ Output directory customization:
   CERT_TEMPLATES_DIR - Custom directory for templates (default: /app/templates)
 
 Fixed organization:
-  Country: UY (Uruguay)
-  State: Montevideo
-  City: Montevideo
-  Organization: Infocorpgroup
-  Email: ingenieria@infocorp.com.uy
+  Country: CL (Chile)
+  State: Santiago
+  City: Santiago
+  Organization: World Development
+  Email: dev.joselyr@gmail.com
 
 📖 Complete documentation and examples: See README.md
 

@@ -2,23 +2,6 @@
 # entrypoint.sh - Main entry point for ICBanking Init container
 # Handles multiple actions and can be extended for future functionalities
 
-# Load variables from /app/config/default.vars if not exist
-load_default_vars_if_unset() {
-    local vars_file="/app/config/default.vars"
-    if [ -f "$vars_file" ]; then
-        while IFS='=' read -r var val; do
-            # Ignore empty lines and comments
-            if [[ -z "$var" || "$var" =~ ^# ]]; then continue; fi
-            var="$(echo "$var" | xargs)"
-            val="$(echo "$val" | xargs)"
-            if [ -z "${!var-}" ]; then
-                export "$var"="$val"
-                log_warn "$var=$val"
-            fi
-        done < "$vars_file"
-    fi
-}
-
 # Load common functions
 source /app/scripts/common.sh
 source /app/scripts/certificates/utils.sh
@@ -27,9 +10,69 @@ source /app/scripts/certificates/utils.sh
 trap 'log_info "Script completed normally"; exit 0' EXIT
 trap 'log_info "Script interrupted by signal"; exit 0' SIGTERM SIGINT SIGQUIT
 
+# Load variables from /app/config/default.vars if not exist
+load_default_vars_if_unset() {
+    local vars_file="/app/config/default.vars"
+    if [ -f "$vars_file" ]; then
+        log_info "Loading variables from $vars_file"
+        while IFS='=' read -r var val; do
+            # Ignore empty lines and comments
+            if [[ -z "$var" || "$var" =~ ^# ]]; then continue; fi
+            var="$(echo "$var" | xargs)"
+            val="$(echo "$val" | xargs)"
+            # Check if variable is unset or empty
+            if [[ -z "${!var:-}" ]]; then
+                export "$var"="$val"
+                log_warn "$var=$val"
+            else
+                log_info "Skipping $var (already set to: '${!var}')"
+            fi
+        done < "$vars_file"
+    else
+        log_error "Variables file not found: $vars_file"
+    fi
+}
+
+# Clean directories function
+clean_app_directories() {
+    log_info "Cleaning application directories..."
+    
+    # Remove and recreate /app/config directory (preserving volume mount)
+    if [[ -d "/app/config" ]]; then
+        log_info "Cleaning /app/config directory contents"
+        rm -rf /app/config/*
+    else
+        log_info "Creating /app/config directory"
+        mkdir -p /app/config
+    fi
+    
+    # Remove and recreate /app/certs directory (preserving volume mount)
+    if [[ -d "/app/certs" ]]; then
+        log_info "Cleaning /app/certs directory contents"
+        rm -rf /app/certs/*
+    else
+        log_info "Creating /app/certs directory"
+        mkdir -p /app/certs
+    fi
+    
+    # Copy default.vars from the Docker image to the config volume
+    if [[ -f "/tmp/default.vars" ]]; then
+        log_info "Copying default.vars from image to /app/config/"
+        cp /tmp/default.vars /app/config/default.vars
+    else
+        log_warn "default.vars not found in image, will use environment variables only"
+    fi
+    
+    log_info "Directory cleanup completed"
+}
+
 # Main entrypoint function
 main() {
     log_info "Starting main entrypoint"
+    
+    # Always clean directories at startup
+    clean_app_directories
+    
     local action="${1:-default}"
     load_default_vars_if_unset
 

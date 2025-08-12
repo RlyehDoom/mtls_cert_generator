@@ -7,7 +7,9 @@ COPY certs-install.ps1 ./app/scripts/pwsh/
 COPY default.vars ./app/config/default.vars
 COPY entrypoint.sh ./app/entrypoint.sh
 
-RUN dos2unix ./app/entrypoint.sh
+# Keep a backup copy of default.vars and convert line endings
+RUN cp ./app/config/default.vars /tmp/default.vars && \
+    dos2unix ./app/entrypoint.sh
 
 # Copia el script global_utils.sh para que se cargue en cada shell
 COPY scripts/global_utils.sh /etc/profile.d/global_utils.sh

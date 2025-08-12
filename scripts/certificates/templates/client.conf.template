@@ -4,13 +4,13 @@ req_extensions = v3_req
 prompt = no
 
 [req_distinguished_name]
-C = UY
-ST = Montevideo
-L = Montevideo
-O = Infocorpgroup
+C = CL
+ST = Santiago
+L = Santiago Centro
+O = World Development
 OU = Client Services
-CN = ${CERT_CN}
-emailAddress = ingenieria@infocorp.com.uy
+CN = Client - ${CERT_CN}
+emailAddress = ${CERT_EMAIL}
 
 [v3_req]
 basicConstraints = CA:FALSE

@@ -4,13 +4,13 @@ req_extensions = v3_ca
 prompt = no
 
 [req_distinguished_name]
-C = UY
-ST = Montevideo
-L = Montevideo
-O = Infocorpgroup
+C = CL
+ST = Santiago
+L = Santiago Centro
+O = World Development
 OU = Certificate Authority
-CN = Infocorpgroup Root CA
-emailAddress = ingenieria@infocorp.com.uy
+CN = Root CA - ${CERT_CN}
+emailAddress = ${CERT_EMAIL}
 
 [v3_ca]
 basicConstraints = critical, CA:TRUE
