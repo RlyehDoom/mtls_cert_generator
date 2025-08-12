@@ -1,11 +1,12 @@
 # PowerShell Core script for PFX certificate installation from Docker volume
 # Compatible with Windows, Linux and macOS
 # Automatically downloads certificates from Docker volume to local system
-# Usage: pwsh -File init-certs-install.ps1 [-CertName <certificate-filename>] [-CertPass <password>] [-ListOnly]
+# Usage: pwsh -File certs-install.ps1 [-CertName <certificate-filename>] [-CertPass <password>] [-VolumeName <docker-volume>] [-ListOnly]
 
 param(
     [string]$CertPass,
     [string]$CertName,
+    [string]$VolumeName = "mTLS-certs",
     [switch]$ListOnly
 )
 
@@ -28,15 +29,19 @@ function Show-Message {
 
 # Obtiene certificados desde el volumen Docker de forma simplificada
 function Get-DockerCertificates {
+    param(
+        [string]$DockerVolumeName = "mTLS-certs"
+    )
+    
     try {
         if (-not (Get-Command docker -ErrorAction SilentlyContinue)) {
             Show-Message "Docker no encontrado" "Warning"
             return @()
         }
         
-        $volumeInfo = docker volume inspect ic-monolith_certificates-data 2>$null | ConvertFrom-Json
+        $volumeInfo = docker volume inspect $DockerVolumeName 2>$null | ConvertFrom-Json
         if (-not $volumeInfo -or $volumeInfo.Count -eq 0) {
-            Show-Message "Volumen Docker 'ic-monolith_certificates-data' no encontrado" "Warning"
+            Show-Message "Volumen Docker '$DockerVolumeName' no encontrado" "Warning"
             return @()
         }
 
@@ -51,7 +56,7 @@ function Get-DockerCertificates {
             New-Item -ItemType Directory -Path $tempDir -Force | Out-Null
             
             # Crear contenedor temporal y copiar certificados
-            docker run -d --name $tempContainer -v ic-monolith_certificates-data:/certs alpine:latest tail -f /dev/null 2>$null | Out-Null
+            docker run -d --name $tempContainer -v "${DockerVolumeName}:/certs" alpine:latest tail -f /dev/null 2>$null | Out-Null
             if ($LASTEXITCODE -ne 0) { return @() }
 
             docker cp "${tempContainer}:/certs/." $tempDir 2>$null | Out-Null
@@ -59,8 +64,10 @@ function Get-DockerCertificates {
 
             Show-Message "Certificados copiados exitosamente a: $tempDir"
 
-            # Obtener solo archivos PFX
-            return Get-ChildItem -Path $tempDir -Filter "*.pfx" -ErrorAction SilentlyContinue | ForEach-Object {
+            # Obtener archivos .pfx y/o ca.crt
+            $files = @(Get-ChildItem -Path $tempDir -Filter "*.pfx" -ErrorAction SilentlyContinue)
+            $files += @(Get-ChildItem -Path $tempDir -Filter "ca.crt" -ErrorAction SilentlyContinue)
+            return $files | ForEach-Object {
                 [PSCustomObject]@{
                     Path = $_.FullName
                     Name = $_.Name
@@ -150,22 +157,25 @@ function Get-UserPassword {
 # Busca certificado por nombre con coincidencias exactas y parciales
 function Find-CertificateByName {
     param(
-        [string]$Name
+        [string]$Name,
+        [string]$DockerVolumeName = "mTLS-certs"
     )
     
     Show-Message "Buscando certificado: $Name"
+    $Extension = [System.IO.Path]::GetExtension($Name).TrimStart('.')
     
-    $certs = Get-DockerCertificates
+    $certs = Get-DockerCertificates -DockerVolumeName $DockerVolumeName
     if ($certs.Count -eq 0) {
-        Show-Message "No hay certificados PFX en el volumen Docker" "Error"
+        Show-Message "No hay certificados PFX y/o CA.CRT en el volumen Docker" "Error"
         return $null
     }
     
     # Búsqueda exacta (prioridad alta)
     $exact = $certs | Where-Object { 
         $_.Name -eq $Name -or 
-        $_.Name -eq "$Name.pfx" -or 
-        ([System.IO.Path]::GetFileNameWithoutExtension($_.Name) -eq $Name -and $_.Name.EndsWith(".pfx"))
+        $_.Name -eq "$Name.$Extension" -or 
+        ([System.IO.Path]::GetFileNameWithoutExtension($_.Name) -eq $Name -and $_.Name.EndsWith(".pfx")) -or 
+        ([System.IO.Path]::GetFileNameWithoutExtension($_.Name) -eq $Name -and $_.Name.EndsWith(".crt"))
     }
     
     if ($exact) {
@@ -556,13 +566,17 @@ function Install-MacOSCertificate {
 
 # Muestra certificados instalados según el SO
 function Get-InstalledCertificates {
+    param(
+        [string]$DockerVolumeName = "mTLS-certs"
+    )
+    
     Show-Message "Certificados PFX Instalados ICBanking" "Header"
     
     # Mostrar certificados PFX del volumen Docker
     Show-Message "Verificando volumen Docker para certificados PFX..."
-    $volumeCerts = Get-DockerCertificates
+    $volumeCerts = Get-DockerCertificates -DockerVolumeName $DockerVolumeName
     if ($volumeCerts.Count -gt 0) {
-        Show-Message "Certificados PFX disponibles en volumen Docker 'ic-monolith_certificates-data':"
+        Show-Message "Certificados PFX disponibles en volumen Docker '$DockerVolumeName':"
         foreach ($cert in $volumeCerts) {
             # Obtener información del certificado
             $certInfo = Get-CertificateInfo -CertPath $cert.Path
@@ -575,7 +589,7 @@ function Get-InstalledCertificates {
         }
         Show-Message ""
     } else {
-        Show-Message "❌ No se encontraron certificados PFX en el volumen Docker 'ic-monolith_certificates-data'"
+        Show-Message "❌ No se encontraron certificados PFX en el volumen Docker '$DockerVolumeName'"
         Show-Message ""
     }
     
@@ -692,7 +706,7 @@ try {
     Show-Message "Herramienta de Instalación de Certificados PFX" "Header"
     
     if ($ListOnly) {
-        Get-InstalledCertificates
+        Get-InstalledCertificates -DockerVolumeName $VolumeName
         return
     }
     
@@ -709,7 +723,7 @@ try {
     }
     
     # Buscar certificado por nombre
-    $foundResult = Find-CertificateByName -Name $CertName
+    $foundResult = Find-CertificateByName -Name $CertName -DockerVolumeName $VolumeName
     if (-not $foundResult) {
         Show-Message "❌ Archivo de certificado '$CertName' no encontrado" "Error"
         Show-Message "Use -ListOnly para ver archivos de certificado disponibles"
@@ -718,38 +732,78 @@ try {
     
     $CertPath = $foundResult.Path
     Show-Message "Usando certificado: $($foundResult.Name) en $CertPath"
-    
-    # Verificar que el archivo existe y es PFX
+
     if (-not (Test-Path $CertPath)) {
-        Show-Message "❌ Archivo de certificado PFX no encontrado: $CertPath" "Error"
+        Show-Message "❌ Archivo de certificado no encontrado: $CertPath" "Error"
         exit 1
     }
-    
-    if (-not $CertPath.EndsWith(".pfx", [System.StringComparison]::OrdinalIgnoreCase)) {
-        Show-Message "❌ El archivo debe ser un certificado PFX (extensión .pfx requerida)" "Error"
-        exit 1
-    }
-    
-    # Determinar contraseña
-    $SecurePassword = $null
-    if ($CertPass) {
-        $SecurePassword = ConvertTo-SecurePassword -PlainTextPass $CertPass
-        Show-Message "Usando contraseña proporcionada"
+
+    $extension = [System.IO.Path]::GetExtension($CertPath).ToLowerInvariant()
+
+    if ($extension -eq ".pfx") {
+        # Determinar contraseña
+        $SecurePassword = $null
+        if ($CertPass) {
+            $SecurePassword = ConvertTo-SecurePassword -PlainTextPass $CertPass
+            Show-Message "Usando contraseña proporcionada"
+        } else {
+            $SecurePassword = Get-UserPassword -CertPath $CertPath -CertName (Split-Path $CertPath -Leaf)
+        }
+
+        # Instalar certificado PFX
+        $result = Install-PfxCertificate -CertPath $CertPath -Password $SecurePassword
+
+        Show-Message "Instalación Completa" "Header"
+        if ($null -ne $result) {
+            Show-Message "✅ Proceso de instalación de certificado PFX completado exitosamente"
+            
+            # Buscar e instalar CA automáticamente
+            Show-Message "Buscando e instalando CA correspondiente..." "Header"
+            $caCert = Get-DockerCertificates -DockerVolumeName $VolumeName | Where-Object { $_.Name -eq "ca.crt" }
+            if ($caCert) {
+                Show-Message "Encontrado certificado CA: $($caCert.Name)"
+                Remove-ExistingCertificates -FriendlyName "ICBanking Development CA"
+                $caObject = [PSCustomObject]@{
+                    Name = $caCert.Name
+                    Path = $caCert.Path
+                    FriendlyName = "ICBanking Development CA"
+                    Password = $null
+                    Subject = "CA"
+                    NotAfter = $null
+                }
+                Install-Certificates -Certificates @($caObject)
+                Show-Message "✅ Certificado CA instalado exitosamente"
+                Show-Message "   Esto debería resolver los errores de 'net::ERR_CERT_AUTHORITY_INVALID'" "Info"
+            } else {
+                Show-Message "⚠️ No se encontró certificado CA (ca.crt) en el volumen Docker" "Warning"
+                Show-Message "   Para eliminar errores de certificado, instale manualmente la CA:" "Warning"
+                Show-Message "   pwsh -File init-certs-install.ps1 -CertName ca.crt" "Warning"
+            }
+        } else {
+            Show-Message "❌ Falló la instalación del certificado PFX" "Error"
+            exit 1
+        }
+    } elseif ($extension -eq ".crt") {
+        # Instalar CA
+        Show-Message "Instalando certificado de Autoridad Certificadora (CA)" "Header"
+        $caFriendlyName = "ICBanking CA"
+        Remove-ExistingCertificates -FriendlyName $caFriendlyName
+        $certificateObject = [PSCustomObject]@{
+            Name = [System.IO.Path]::GetFileName($CertPath)
+            Path = $CertPath
+            FriendlyName = $caFriendlyName
+            Password = $null
+            Subject = "CA"
+            NotAfter = $null
+        }
+        Install-Certificates -Certificates @($certificateObject)
+        Show-Message "Instalación Completa" "Header"
+        Show-Message "✅ Proceso de instalación de certificado CA completado exitosamente"
     } else {
-        $SecurePassword = Get-UserPassword -CertPath $CertPath -CertName (Split-Path $CertPath -Leaf)
-    }
-    
-    # Instalar certificado
-    $result = Install-PfxCertificate -CertPath $CertPath -Password $SecurePassword
-    
-    Show-Message "Instalación Completa" "Header"
-    if ($null -ne $result) {
-        Show-Message "✅ Proceso de instalación de certificado PFX completado exitosamente"
-    } else {
-        Show-Message "❌ Falló la instalación del certificado PFX" "Error"
+        Show-Message "❌ El archivo debe ser un certificado PFX (.pfx) o CA (.crt)" "Error"
         exit 1
     }
-    
+
     Show-Message "Para verificar la instalación, ejecute: pwsh -File init-certs-install.ps1 -ListOnly"
     Show-Message "Para instalar un certificado específico por nombre de archivo: pwsh -File init-certs-install.ps1 -CertName <nombre-certificado>"
     Show-Message "Para instalar con contraseña específica: pwsh -File init-certs-install.ps1 -CertName <nombre-certificado> -CertPass <contraseña>"

@@ -16,3 +16,11 @@ emailAddress = ingenieria@infocorp.com.uy
 basicConstraints = critical, CA:TRUE
 keyUsage = critical, cRLSign, keyCertSign
 subjectKeyIdentifier = hash
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = digitalSignature, keyEncipherment
+subjectAltName = @alt_names
+
+[alt_names]
+# The alt_names are generated dynamically from CERT_ALT_NAMES
