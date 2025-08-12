@@ -1,0 +1,23 @@
+[req]
+distinguished_name = req_distinguished_name
+req_extensions = v3_req
+prompt = no
+
+[req_distinguished_name]
+C = UY
+ST = Montevideo
+L = Montevideo
+O = Infocorpgroup
+OU = Client Services
+CN = ${CERT_CN}
+emailAddress = ingenieria@infocorp.com.uy
+
+[v3_req]
+basicConstraints = CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment, nonRepudiation
+extendedKeyUsage = clientAuth
+subjectKeyIdentifier = hash
+subjectAltName = @alt_names
+
+[alt_names]
+# The alt_names are generated dynamically from CERT_ALT_NAMES
