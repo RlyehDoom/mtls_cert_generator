@@ -10,9 +10,9 @@ source /app/scripts/certificates/utils.sh
 trap 'log_info "Script completed normally"; exit 0' EXIT
 trap 'log_info "Script interrupted by signal"; exit 0' SIGTERM SIGINT SIGQUIT
 
-# Load variables from /app/config/default.vars if not exist
+# Load variables from /app/vars/default.vars if not exist
 load_default_vars_if_unset() {
-    local vars_file="/app/config/default.vars"
+    local vars_file="/app/vars/default.vars"
     if [ -f "$vars_file" ]; then
         log_info "Loading variables from $vars_file"
         while IFS='=' read -r var val; do
@@ -55,12 +55,22 @@ clean_app_directories() {
         mkdir -p /app/certs
     fi
     
-    # Copy default.vars from the Docker image to the config volume
-    if [[ -f "/tmp/default.vars" ]]; then
-        log_info "Copying default.vars from image to /app/config/"
-        cp /tmp/default.vars /app/config/default.vars
+    # Ensure /app/vars directory exists
+    if [[ ! -d "/app/vars" ]]; then
+        log_info "Creating /app/vars directory"
+        mkdir -p /app/vars
+    fi
+    
+    # Copy default.vars only if it doesn't exist (preserve existing configuration)
+    if [[ ! -f "/app/vars/default.vars" ]]; then
+        if [[ -f "/tmp/default.vars" ]]; then
+            log_info "Copying default.vars from image to /app/vars/ (first time setup)"
+            cp /tmp/default.vars /app/vars/default.vars
+        else
+            log_warn "default.vars not found in image, will use environment variables only"
+        fi
     else
-        log_warn "default.vars not found in image, will use environment variables only"
+        log_info "Preserving existing /app/vars/default.vars (not overwriting)"
     fi
     
     log_info "Directory cleanup completed"
